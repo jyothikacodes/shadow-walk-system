@@ -1,42 +1,30 @@
 const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
 const cors = require('cors');
+
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
 
 app.use(cors());
 app.use(express.json());
 
-// Mock database for "Shadow" reports (bad lighting/suspicious activity)
-let shadowReports = [
-    { id: 1, lat: 9.9312, lng: 76.2673, type: 'Poor Lighting' }
+// Simulation of Safe Street Lights for the Heatmap
+const safePoints = [
+    { lat: 12.9716, lng: 77.5946, intensity: 0.9 },
+    { lat: 12.9720, lng: 77.5950, intensity: 0.7 },
+    { lat: 12.9710, lng: 77.5940, intensity: 0.8 }
 ];
 
-// Safety Algorithm: Calculates weight based on "Vibrancy" (Open Businesses)
-app.post('/calculate-route', (req, res) => {
-    const { start, end } = req.body;
-    
-    // In a real app, you'd call Google Places API here.
-    // For the demo, we return a "Safe Path" vs "Fast Path"
-    const safetyData = {
-        safe_path: {
-            coords: [[9.9312, 76.2673], [9.9350, 76.2700]], 
-            safety_score: "High (4 Open Cafes nearby)",
-            distance: "1.2 km"
-        },
-        fast_path: {
-            coords: [[9.9312, 76.2673], [9.9320, 76.2680]], 
-            safety_score: "Low (Industrial Area/Closed)",
-            distance: "0.8 km"
-        }
-    };
-    res.json(safetyData);
-});
-
-// Endpoint for the "Shadow" button
 app.post('/report-shadow', (req, res) => {
-    const report = { ...req.body, id: Date.now(), time: new Date() };
-    shadowReports.push(report);
-    console.log("🚨 New Shadow Report:", report);
-    res.status(200).send({ message: "Report added to Living Map" });
+    const report = req.body;
+    console.log('🚨 Shadow Alert Received:', report);
+    // Broadcast to all connected dashboards
+    io.emit('new-shadow-alert', report);
+    res.status(200).send({ status: "Success" });
 });
 
-app.listen(3000, () => console.log('🚀 Shadow-Walk Engine Live on Port 3000'));
+server.listen(3000, () => {
+    console.log('🚀 Server running on http://localhost:3000');
+});

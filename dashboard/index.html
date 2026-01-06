@@ -3,28 +3,57 @@
 <head>
     <title>Shadow-Walk Dashboard</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        #map { height: 100vh; width: 100%; background: #000; }
-        .legend { position: fixed; bottom: 20px; left: 20px; z-index: 1000; background: white; padding: 10px; color: black; border-radius: 5px; }
+        body { margin: 0; background: #121212; color: white; font-family: sans-serif; text-align: center; }
+        #map { 
+            height: 70vh; /* This makes the map visible! */
+            width: 90%; 
+            margin: 20px auto; 
+            border-radius: 15px; 
+            border: 2px solid #333;
+        }
+        .stats { display: flex; justify-content: center; gap: 20px; padding: 20px; }
+        .box { background: #1e1e1e; padding: 15px; border-radius: 10px; min-width: 150px; border-bottom: 4px solid #00ff88; }
     </style>
 </head>
 <body>
+    <h1>🛡️ SHADOW-WALK COMMAND CENTER</h1>
+    <div class="stats">
+        <div class="box">System: 🟢 Online</div>
+        <div class="box">Live Alerts: <span id="alert-count">0</span></div>
+    </div>
+
     <div id="map"></div>
-    <div class="legend"><b>Shadow Zones:</b> Areas reported by community</div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
     <script>
-        const map = L.map('map').setView([9.9312, 76.2673], 15);
+        // 1. Initialize Map
+        const map = L.map('map').setView([12.9716, 77.5946], 15);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
 
-        // Simulated "Safe Route" (Green)
-        const safePath = [ [9.9312, 76.2673], [9.9325, 76.2690], [9.9350, 76.2700] ];
-        L.polyline(safePath, {color: '#4ade80', weight: 8, opacity: 0.8}).addTo(map);
+        // 2. Add Heatmap (Safe Zones)
+        const heatData = [[12.9716, 77.5946, 0.9], [12.9720, 77.5950, 0.7], [12.9710, 77.5940, 0.8]];
+        L.heatLayer(heatData, {radius: 25, blur: 15, gradient: {0.4: 'blue', 0.6: 'lime', 1: 'yellow'}}).addTo(map);
 
-        // "Shadow" Zone (Red/Dark)
-        const shadowZone = L.circle([9.9330, 76.2685], {
-            color: 'red', fillColor: '#000', fillOpacity: 0.7, radius: 100
-        }).addTo(map).bindPopup("Report: Zero working streetlights.");
+        // 3. Socket Connection
+        const socket = io('http://localhost:3000');
+        let count = 0;
+
+        socket.on('new-shadow-alert', (data) => {
+            count++;
+            document.getElementById('alert-count').innerText = count;
+            
+            // Add Danger Marker
+            const marker = L.circle([data.lat, data.lng], {
+                color: 'red', fillColor: '#f03', fillOpacity: 0.5, radius: 100
+            }).addTo(map);
+            
+            marker.bindPopup("<b>🚨 EMERGENCY</b><br>Shadow reported here!").openPopup();
+            map.flyTo([data.lat, data.lng], 16);
+        });
     </script>
 </body>
 </html>

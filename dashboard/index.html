@@ -1,59 +1,131 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Shadow-Walk Dashboard</title>
+    <title>Shadow-Walk | Safest Route AI</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    
     <style>
-        body { margin: 0; background: #121212; color: white; font-family: sans-serif; text-align: center; }
-        #map { 
-            height: 70vh; /* This makes the map visible! */
-            width: 90%; 
-            margin: 20px auto; 
-            border-radius: 15px; 
-            border: 2px solid #333;
+        body { margin: 0; background: #0b0e11; color: white; font-family: 'Segoe UI', sans-serif; }
+        #map { height: 100vh; width: 100%; z-index: 1; }
+
+        .leaflet-control-geocoder {
+            min-width: 350px !important; margin-top: 20px !important;
+            background: #1c1f26 !important; border: 2px solid #00ff88 !important; border-radius: 8px !important;
         }
-        .stats { display: flex; justify-content: center; gap: 20px; padding: 20px; }
-        .box { background: #1e1e1e; padding: 15px; border-radius: 10px; min-width: 150px; border-bottom: 4px solid #00ff88; }
+        .leaflet-control-geocoder-form input { background: transparent !important; color: white !important; padding: 10px !important; }
+        
+        .info-panel {
+            position: absolute; bottom: 30px; left: 30px; z-index: 1000;
+            background: rgba(28, 31, 38, 0.95); padding: 20px;
+            border-radius: 12px; border: 1px solid #00ff88; min-width: 250px;
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+        }
+        .safety-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-weight: bold; margin-top: 5px; }
+        .safe { background: #00ff88; color: black; }
+        .danger { background: #ff4444; color: white; }
     </style>
 </head>
 <body>
-    <h1>🛡️ SHADOW-WALK COMMAND CENTER</h1>
-    <div class="stats">
-        <div class="box">System: 🟢 Online</div>
-        <div class="box">Live Alerts: <span id="alert-count">0</span></div>
+
+    <div class="info-panel">
+        <h3 style="margin:0; color:#00ff88;">🛡️ Safe-Path Monitor</h3>
+        <p id="dist">Distance: -- km</p>
+        <div id="safe-status" class="safety-badge safe">Analyzing Environment...</div>
+        <p style="font-size: 0.8rem; color: #888; margin-top: 10px;">Scanning for: 24/7 Shops & SOS Reports</p>
     </div>
 
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
     <script>
-        // 1. Initialize Map
         const map = L.map('map').setView([12.9716, 77.5946], 15);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
 
-        // 2. Add Heatmap (Safe Zones)
-        const heatData = [[12.9716, 77.5946, 0.9], [12.9720, 77.5950, 0.7], [12.9710, 77.5940, 0.8]];
-        L.heatLayer(heatData, {radius: 25, blur: 15, gradient: {0.4: 'blue', 0.6: 'lime', 1: 'yellow'}}).addTo(map);
+        let userLocation = null;
+        let routeControl = null;
+        let activeSOS = [];
 
-        // 3. Socket Connection
+        // 1. SOS REAL-TIME MONITORING
         const socket = io('http://localhost:3000');
-        let count = 0;
-
-        socket.on('new-shadow-alert', (data) => {
-            count++;
-            document.getElementById('alert-count').innerText = count;
-            
-            // Add Danger Marker
-            const marker = L.circle([data.lat, data.lng], {
-                color: 'red', fillColor: '#f03', fillOpacity: 0.5, radius: 100
-            }).addTo(map);
-            
-            marker.bindPopup("<b>🚨 EMERGENCY</b><br>Shadow reported here!").openPopup();
-            map.flyTo([data.lat, data.lng], 16);
+        socket.on('new-alert', (data) => {
+            if (data.type === "SOS") {
+                activeSOS.push(L.latLng(data.lat, data.lng));
+                L.circle([data.lat, data.lng], { color: 'red', radius: 250, fillOpacity: 0.4 }).addTo(map)
+                    .bindPopup("🚨 <b>Danger:</b> Recent incident reported!");
+                if(routeControl) checkSafety();
+            }
         });
+
+        // 2. OVERPASS API: FETCH OPEN SHOPS (SAFE ZONES)
+        async function getSafeZones(lat, lng) {
+            // This query finds shops, pharmacies, and police within 1km
+            const query = `[out:json];(node["shop"](around:1000,${lat},${lng});node["amenity"="pharmacy"](around:1000,${lat},${lng});node["amenity"="police"](around:1000,${lat},${lng}););out;`;
+            const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+            
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                data.elements.forEach(el => {
+                    L.circle([el.lat, el.lon], { color: '#00ff88', radius: 50, fillOpacity: 0.1, weight: 1 }).addTo(map)
+                        .bindTooltip(el.tags.name || "Safe Zone", {permanent: false});
+                });
+            } catch (e) { console.error("Safe zones failed", e); }
+        }
+
+        // 3. GEOLOCATION
+        map.locate({setView: true, watch: true, maxZoom: 16});
+        map.on('locationfound', (e) => {
+            userLocation = e.latlng;
+            L.circleMarker(e.latlng, {color: '#00ff88', radius: 6}).addTo(map);
+            getSafeZones(e.latlng.lat, e.latlng.lng);
+        });
+
+        // 4. SEARCH & ROUTE
+        const geocoder = L.Control.geocoder({ collapsed: false, placeholder: "Enter Destination..." })
+            .on('markgeocode', (e) => calculateRoute(e.geocode.center))
+            .addTo(map);
+
+        function calculateRoute(dest) {
+            if (routeControl) map.removeControl(routeControl);
+            
+            routeControl = L.Routing.control({
+                waypoints: [L.latLng(userLocation.lat, userLocation.lng), L.latLng(dest.lat, dest.lng)],
+                lineOptions: { styles: [{ color: '#00ff88', weight: 6, opacity: 0.8 }] },
+                createMarker: () => null
+            }).addTo(map);
+
+            routeControl.on('routesfound', (e) => {
+                const dist = (e.routes[0].summary.totalDistance / 1000).toFixed(2);
+                document.getElementById('dist').innerText = `Distance: ${dist} km`;
+                checkSafety(e.routes[0].coordinates);
+            });
+        }
+
+        // 5. SAFETY ALGORITHM
+        function checkSafety(pathCoords) {
+            let isDangerous = false;
+            pathCoords.forEach(coord => {
+                activeSOS.forEach(sos => {
+                    if (L.latLng(coord.lat, coord.lng).distanceTo(sos) < 300) isDangerous = true;
+                });
+            });
+
+            const status = document.getElementById('safe-status');
+            if (isDangerous) {
+                status.innerText = "⚠️ ROUTE DANGER DETECTED";
+                status.className = "safety-badge danger";
+                routeControl.getPlan().setWaypoints(routeControl.getWaypoints()); // Forces refresh
+            } else {
+                status.innerText = "✅ SAFEST PATH VERIFIED";
+                status.className = "safety-badge safe";
+            }
+        }
     </script>
 </body>
 </html>

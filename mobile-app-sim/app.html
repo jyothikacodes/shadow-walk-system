@@ -1,33 +1,78 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>User App</title>
+    <title>Shadow-Walk App</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { background: #000; color: white; text-align: center; font-family: sans-serif; padding-top: 50px; }
-        .btn { width: 80%; padding: 20px; margin: 10px; border-radius: 10px; border: none; font-size: 18px; font-weight: bold; cursor: pointer; }
-        .report { background: red; box-shadow: 0 0 20px rgba(255,0,0,0.6); }
-        .fake-call { background: #333; color: #aaa; }
+        body { background: #000; color: white; font-family: sans-serif; text-align: center; padding: 20px; overflow: hidden; }
+        .safety-ring { width: 200px; height: 200px; border: 5px solid #00ff88; border-radius: 50%; margin: 50px auto; display: flex; align-items: center; justify-content: center; font-size: 2rem; }
+        .status { color: #888; margin-top: 10px; }
+        #sos-overlay { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: red; z-index:1000; padding-top: 100px; }
+        .btn-check { background: white; color: red; padding: 20px; border: none; border-radius: 10px; font-weight: bold; font-size: 1.2rem; }
     </style>
 </head>
 <body>
-    <h2>SHADOW-WALK</h2>
-    <button class="btn report" onclick="sendReport()">🚨 REPORT SHADOW</button>
-    <button class="btn fake-call" onclick="startFakeCall()">📞 RECEIVE FAKE CALL</button>
+    <h1>SHADOW-WALK</h1>
+    <div class="safety-ring" id="timer-display">03:00</div>
+    <div class="status" id="gps-status">Finding GPS signal...</div>
+
+    <div id="sos-overlay">
+        <h1>⚠️ SAFETY ALERT</h1>
+        <p>You have been stationary for 3 minutes.</p>
+        <button class="btn-check" onclick="verifySecurity()">I AM SAFE</button>
+    </div>
 
     <script>
-        async function sendReport() {
-            const pos = { lat: 12.9718, lng: 77.5948 }; // Simulating current location
+        let lat, lng, lastLat, lastLng;
+        let stationarySeconds = 0;
+        const SAFE_CODE = "1234";
+
+        // REAL GPS TRACKER
+        navigator.geolocation.watchPosition((p) => {
+            lat = p.coords.latitude;
+            lng = p.coords.longitude;
+            document.getElementById('gps-status').innerText = `📍 Location Active`;
+        }, (e) => {
+            document.getElementById('gps-status').innerText = "❌ GPS Error: " + e.message;
+        }, { enableHighAccuracy: true });
+
+        // SAFETY TIMER (Run every 1 second)
+        setInterval(() => {
+            if (lat === lastLat && lng === lastLng) {
+                stationarySeconds++;
+            } else {
+                stationarySeconds = 0; // Reset because they moved
+                lastLat = lat; lastLng = lng;
+            }
+
+            // Update UI
+            let remaining = 180 - stationarySeconds;
+            if (remaining <= 0) {
+                document.getElementById('sos-overlay').style.display = 'block';
+            } else {
+                let m = Math.floor(remaining/60);
+                let s = remaining % 60;
+                document.getElementById('timer-display').innerText = `${m}:${s < 10 ? '0'+s : s}`;
+            }
+        }, 1000);
+
+        function verifySecurity() {
+            let code = prompt("Enter 4-digit safety code:");
+            if (code === SAFE_CODE) {
+                stationarySeconds = 0;
+                document.getElementById('sos-overlay').style.display = 'none';
+            } else {
+                sendSOS();
+            }
+        }
+
+        async function sendSOS() {
             await fetch('http://localhost:3000/report-shadow', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(pos)
+                body: JSON.stringify({ lat, lng, type: "SOS" })
             });
-            alert("Report sent to nearby volunteers!");
-        }
-
-        function startFakeCall() {
-            alert("Incoming call from: 'Mom'...");
+            alert("Emergency Broadcasted!");
         }
     </script>
 </body>

@@ -1,18 +1,63 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>Shadow-Walk App</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { background: #000; color: white; font-family: sans-serif; text-align: center; padding: 20px; overflow: hidden; }
-        .safety-ring { width: 200px; height: 200px; border: 5px solid #00ff88; border-radius: 50%; margin: 50px auto; display: flex; align-items: center; justify-content: center; font-size: 2rem; }
-        .status { color: #888; margin-top: 10px; }
-        #sos-overlay { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: red; z-index:1000; padding-top: 100px; }
-        .btn-check { background: white; color: red; padding: 20px; border: none; border-radius: 10px; font-weight: bold; font-size: 1.2rem; }
+        body {
+            background: #000;
+            color: white;
+            font-family: sans-serif;
+            text-align: center;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        .safety-ring {
+            width: 200px;
+            height: 200px;
+            border: 5px solid #00ff88;
+            border-radius: 50%;
+            margin: 50px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+        }
+
+        .status {
+            color: #aaa;
+            margin-top: 10px;
+        }
+
+        #sos-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: red;
+            z-index: 1000;
+            padding-top: 100px;
+        }
+
+        .btn-check {
+            background: white;
+            color: red;
+            padding: 20px;
+            border: none;
+            border-radius: 10px;
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
     </style>
 </head>
+
 <body>
     <h1>SHADOW-WALK</h1>
+
     <div class="safety-ring" id="timer-display">03:00</div>
     <div class="status" id="gps-status">Finding GPS signal...</div>
 
@@ -23,57 +68,126 @@
     </div>
 
     <script>
-        let lat, lng, lastLat, lastLng;
+        let lat = null, lng = null;
+        let lastLat = null, lastLng = null;
+        let accuracy = null;
+
         let stationarySeconds = 0;
+        let movementConfirmSeconds = 0;
+
         const SAFE_CODE = "1234";
+        const MAX_STATIONARY_TIME = 180;
 
-        // REAL GPS TRACKER
-        navigator.geolocation.watchPosition((p) => {
-            lat = p.coords.latitude;
-            lng = p.coords.longitude;
-            document.getElementById('gps-status').innerText = `📍 Location Active`;
-        }, (e) => {
-            document.getElementById('gps-status').innerText = "❌ GPS Error: " + e.message;
-        }, { enableHighAccuracy: true });
+        const MOVE_THRESHOLD_METERS = 5;     // real movement
+        const MOVE_CONFIRM_TIME = 5;         // seconds
+        const MAX_ALLOWED_ACCURACY = 15;     // meters
 
-        // SAFETY TIMER (Run every 1 second)
+        // 📏 Distance calculator (Haversine)
+        function distance(lat1, lng1, lat2, lng2) {
+            const R = 6371000;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+
+            const a =
+                Math.sin(dLat / 2) ** 2 +
+                Math.cos(lat1 * Math.PI / 180) *
+                Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLng / 2) ** 2;
+
+            return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        // 📍 GPS Tracker
+        navigator.geolocation.watchPosition(
+            (p) => {
+                lat = p.coords.latitude;
+                lng = p.coords.longitude;
+                accuracy = p.coords.accuracy;
+
+                document.getElementById('gps-status').innerText =
+                    `📍 Location Active (±${Math.round(accuracy)}m)`;
+            },
+            (e) => {
+                document.getElementById('gps-status').innerText =
+                    "❌ GPS Error: " + e.message;
+            },
+            { enableHighAccuracy: true }
+        );
+
+        // ⏱️ Safety Timer
         setInterval(() => {
-            if (lat === lastLat && lng === lastLng) {
+            if (lat === null || lng === null) return;
+
+            // 🚫 Ignore noisy GPS readings
+            if (accuracy !== null && accuracy > MAX_ALLOWED_ACCURACY) {
                 stationarySeconds++;
-            } else {
-                stationarySeconds = 0; // Reset because they moved
-                lastLat = lat; lastLng = lng;
+                updateUI();
+                return;
             }
 
-            // Update UI
-            let remaining = 180 - stationarySeconds;
+            if (lastLat !== null && lastLng !== null) {
+                const moved = distance(lat, lng, lastLat, lastLng);
+
+                if (moved < MOVE_THRESHOLD_METERS) {
+                    stationarySeconds++;
+                    movementConfirmSeconds = 0;
+                } else {
+                    movementConfirmSeconds++;
+
+                    if (movementConfirmSeconds >= MOVE_CONFIRM_TIME) {
+                        stationarySeconds = 0;
+                        movementConfirmSeconds = 0;
+                        lastLat = lat;
+                        lastLng = lng;
+                    }
+                }
+            } else {
+                lastLat = lat;
+                lastLng = lng;
+            }
+
+            updateUI();
+        }, 1000);
+
+        function updateUI() {
+            const remaining = MAX_STATIONARY_TIME - stationarySeconds;
+
             if (remaining <= 0) {
                 document.getElementById('sos-overlay').style.display = 'block';
             } else {
-                let m = Math.floor(remaining/60);
-                let s = remaining % 60;
-                document.getElementById('timer-display').innerText = `${m}:${s < 10 ? '0'+s : s}`;
+                const m = Math.floor(remaining / 60);
+                const s = remaining % 60;
+                document.getElementById('timer-display').innerText =
+                    `${m}:${s < 10 ? '0' + s : s}`;
             }
-        }, 1000);
+        }
 
+        // 🔐 Safety Check
         function verifySecurity() {
-            let code = prompt("Enter 4-digit safety code:");
+            const code = prompt("Enter 4-digit safety code:");
             if (code === SAFE_CODE) {
                 stationarySeconds = 0;
+                movementConfirmSeconds = 0;
                 document.getElementById('sos-overlay').style.display = 'none';
             } else {
                 sendSOS();
             }
         }
 
+        // 🚨 SOS Trigger
         async function sendSOS() {
-            await fetch('http://localhost:3000/report-shadow', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ lat, lng, type: "SOS" })
-            });
-            alert("Emergency Broadcasted!");
+            try {
+                await fetch('http://localhost:3000/report-shadow', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lat, lng, type: "SOS" })
+                });
+                alert("🚨 Emergency Broadcasted!");
+            } catch {
+                alert("❌ Failed to send SOS");
+            }
         }
     </script>
 </body>
+
 </html>

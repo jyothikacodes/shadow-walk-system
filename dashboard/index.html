@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Shadow-Walk Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        #map { height: 100vh; width: 100%; background: #000; }
+        .legend { position: fixed; bottom: 20px; left: 20px; z-index: 1000; background: white; padding: 10px; color: black; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="legend"><b>Shadow Zones:</b> Areas reported by community</div>
+
+    <script>
+        const map = L.map('map').setView([9.9312, 76.2673], 15);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+
+        // Simulated "Safe Route" (Green)
+        const safePath = [ [9.9312, 76.2673], [9.9325, 76.2690], [9.9350, 76.2700] ];
+        L.polyline(safePath, {color: '#4ade80', weight: 8, opacity: 0.8}).addTo(map);
+
+        // "Shadow" Zone (Red/Dark)
+        const shadowZone = L.circle([9.9330, 76.2685], {
+            color: 'red', fillColor: '#000', fillOpacity: 0.7, radius: 100
+        }).addTo(map).bindPopup("Report: Zero working streetlights.");
+    </script>
+</body>
+</html>

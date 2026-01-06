@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Shadow-Walk Mobile</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: sans-serif; background: #111; color: white; margin: 0; }
+        .phone-container { width: 100vw; height: 100vh; display: flex; flex-direction: column; }
+        .map-area { flex-grow: 1; background: #222; display: flex; align-items: center; justify-content: center; position: relative; }
+        .ui-overlay { padding: 20px; background: #1a1a1a; border-radius: 20px 20px 0 0; }
+        button { width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 10px; font-weight: bold; }
+        .shadow-btn { background: #4b5563; color: white; }
+        .fake-call-screen { 
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: #000; display: none; z-index: 100; text-align: center; padding-top: 100px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="phone-container">
+    <div class="map-area">
+        <p>🗺️ Safe Map Loading...</p>
+        <div id="check-in-timer" style="position: absolute; top: 10px; right: 10px; color: yellow;"></div>
+    </div>
+    
+    <div class="ui-overlay">
+        <h3>Shadow-Walk Navigation</h3>
+        <p style="color: #4ade80;">✔ Route optimized for: <b>Maximum Vibrancy</b></p>
+        <button class="shadow-btn" onclick="reportShadow()">🌑 REPORT SHADOW (Dark Area)</button>
+    </div>
+</div>
+
+<div id="fakeCall" class="fake-call-screen">
+    <h1 style="color: white;">MOM</h1>
+    <p>Mobile</p>
+    <div style="margin-top: 300px; display: flex; justify-content: space-around;">
+        <div onclick="endCall()" style="background: red; width: 70px; height: 70px; border-radius: 50%;">End</div>
+        <div style="background: green; width: 70px; height: 70px; border-radius: 50%;">Accept</div>
+    </div>
+</div>
+
+<script>
+    function reportShadow() {
+        fetch('http://localhost:3000/report-shadow', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ lat: 9.93, lng: 76.26, reason: 'Bad Lighting' })
+        }).then(() => alert('Map Updated for all users!'));
+    }
+
+    // Logic: If user stops for 5 seconds (simulated), trigger call
+    let stopTime = 0;
+    setInterval(() => {
+        stopTime++;
+        if(stopTime === 5) { // 5 secs for demo, 120 secs for real app
+            document.getElementById('fakeCall').style.display = 'block';
+        }
+    }, 1000);
+
+    function endCall() {
+        document.getElementById('fakeCall').style.display = 'none';
+        stopTime = 0;
+    }
+</script>
+</body>
+</html>

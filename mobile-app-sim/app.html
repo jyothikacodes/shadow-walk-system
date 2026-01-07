@@ -1,193 +1,96 @@
 <!DOCTYPE html>
 <html>
-
 <head>
-    <title>Shadow-Walk App</title>
+    <title>Shadow-Walk | GCP Secure</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body {
-            background: #000;
-            color: white;
-            font-family: sans-serif;
-            text-align: center;
-            padding: 20px;
-            overflow: hidden;
-        }
-
-        .safety-ring {
-            width: 200px;
-            height: 200px;
-            border: 5px solid #00ff88;
-            border-radius: 50%;
-            margin: 50px auto;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 2rem;
-        }
-
-        .status {
-            color: #aaa;
-            margin-top: 10px;
-        }
-
-        #sos-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: red;
-            z-index: 1000;
-            padding-top: 100px;
-        }
-
-        .btn-check {
-            background: white;
-            color: red;
-            padding: 20px;
-            border: none;
-            border-radius: 10px;
-            font-weight: bold;
-            font-size: 1.2rem;
-        }
+        body { background: #000; color: white; font-family: sans-serif; text-align: center; margin: 0; }
+        .safety-ring { width: 180px; height: 180px; border: 4px solid #00ff88; border-radius: 50%; margin: 40px auto; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; }
+        #fake-call-screen, #keypad-screen { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #1a1a1a; z-index: 2000; flex-direction: column; justify-content: space-around; align-items: center; }
+        .call-btn { width: 75px; height: 75px; border-radius: 50%; border: none; font-size: 1.5rem; color: white; cursor: pointer; }
+        .accept { background: #4cd964; } .decline { background: #ff3b30; }
+        .key { width: 80px; height: 80px; border: 1px solid #444; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+        .keypad-grid { display: grid; grid-template-columns: repeat(3, 80px); gap: 20px; }
     </style>
 </head>
-
 <body>
-    <h1>SHADOW-WALK</h1>
+    <h2>SHADOW-WALK</h2>
+    <div class="safety-ring" id="timer-display">02:00</div>
+    <p id="gps-status">Finding GPS...</p>
+    <button onclick="stationarySeconds = 118" style="opacity: 0.2;">Test</button>
 
-    <div class="safety-ring" id="timer-display">03:00</div>
-    <div class="status" id="gps-status">Finding GPS signal...</div>
+    <div id="fake-call-screen">
+        <div style="font-size: 2rem;">Home<br><span style="font-size: 1rem; color: #00ff88;">Incoming...</span></div>
+        <div style="display: flex; gap: 50px;">
+            <button class="call-btn decline" onclick="triggerSOS('Call Rejected')">✖</button>
+            <button class="call-btn accept" onclick="showKeypad()">📞</button>
+        </div>
+    </div>
 
-    <div id="sos-overlay">
-        <h1>⚠️ SAFETY ALERT</h1>
-        <p>You have been stationary for 3 minutes.</p>
-        <button class="btn-check" onclick="verifySecurity()">I AM SAFE</button>
+    <div id="keypad-screen">
+        <h3>Enter Security PIN</h3>
+        <div id="code-display" style="font-size: 2rem; letter-spacing: 10px;">----</div>
+        <div class="keypad-grid" id="keys"></div>
     </div>
 
     <script>
-        let lat = null, lng = null;
-        let lastLat = null, lastLng = null;
-        let accuracy = null;
+        let lat, lng, lastLat, lastLng, stationarySeconds = 0;
+        let currentInput = "";
+        const SAFE_CODE = "1234", MAX_TIME = 120;
 
-        let stationarySeconds = 0;
-        let movementConfirmSeconds = 0;
+        navigator.geolocation.watchPosition(p => {
+            lat = p.coords.latitude; lng = p.coords.longitude;
+            document.getElementById('gps-status').innerText = "📍 Tracking Active";
+            if(!lastLat) { lastLat = lat; lastLng = lng; }
+        });
 
-        const SAFE_CODE = "1234";
-        const MAX_STATIONARY_TIME = 180;
-
-        const MOVE_THRESHOLD_METERS = 5;     // real movement
-        const MOVE_CONFIRM_TIME = 5;         // seconds
-        const MAX_ALLOWED_ACCURACY = 15;     // meters
-
-        // 📏 Distance calculator (Haversine)
-        function distance(lat1, lng1, lat2, lng2) {
-            const R = 6371000;
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLng = (lng2 - lng1) * Math.PI / 180;
-
-            const a =
-                Math.sin(dLat / 2) ** 2 +
-                Math.cos(lat1 * Math.PI / 180) *
-                Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLng / 2) ** 2;
-
-            return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        }
-
-        // 📍 GPS Tracker
-        navigator.geolocation.watchPosition(
-            (p) => {
-                lat = p.coords.latitude;
-                lng = p.coords.longitude;
-                accuracy = p.coords.accuracy;
-
-                document.getElementById('gps-status').innerText =
-                    `📍 Location Active (±${Math.round(accuracy)}m)`;
-            },
-            (e) => {
-                document.getElementById('gps-status').innerText =
-                    "❌ GPS Error: " + e.message;
-            },
-            { enableHighAccuracy: true }
-        );
-
-        // ⏱️ Safety Timer
         setInterval(() => {
-            if (lat === null || lng === null) return;
+            if(!lat) return;
+            // Check for stationary status
+            if(lat === lastLat && lng === lastLng) stationarySeconds++;
+            else { stationarySeconds = 0; lastLat = lat; lastLng = lng; }
 
-            // 🚫 Ignore noisy GPS readings
-            if (accuracy !== null && accuracy > MAX_ALLOWED_ACCURACY) {
-                stationarySeconds++;
-                updateUI();
-                return;
-            }
-
-            if (lastLat !== null && lastLng !== null) {
-                const moved = distance(lat, lng, lastLat, lastLng);
-
-                if (moved < MOVE_THRESHOLD_METERS) {
-                    stationarySeconds++;
-                    movementConfirmSeconds = 0;
-                } else {
-                    movementConfirmSeconds++;
-
-                    if (movementConfirmSeconds >= MOVE_CONFIRM_TIME) {
-                        stationarySeconds = 0;
-                        movementConfirmSeconds = 0;
-                        lastLat = lat;
-                        lastLng = lng;
-                    }
-                }
-            } else {
-                lastLat = lat;
-                lastLng = lng;
-            }
-
-            updateUI();
+            const remaining = MAX_TIME - stationarySeconds;
+            if(remaining <= 0) document.getElementById('fake-call-screen').style.display = 'flex';
+            else updateTimer(remaining);
         }, 1000);
 
-        function updateUI() {
-            const remaining = MAX_STATIONARY_TIME - stationarySeconds;
-
-            if (remaining <= 0) {
-                document.getElementById('sos-overlay').style.display = 'block';
-            } else {
-                const m = Math.floor(remaining / 60);
-                const s = remaining % 60;
-                document.getElementById('timer-display').innerText =
-                    `${m}:${s < 10 ? '0' + s : s}`;
-            }
+        function updateTimer(s) {
+            const m = Math.floor(s/60); const sec = s%60;
+            document.getElementById('timer-display').innerText = `${m}:${sec < 10 ? '0'+sec : sec}`;
         }
 
-        // 🔐 Safety Check
-        function verifySecurity() {
-            const code = prompt("Enter 4-digit safety code:");
-            if (code === SAFE_CODE) {
-                stationarySeconds = 0;
-                movementConfirmSeconds = 0;
-                document.getElementById('sos-overlay').style.display = 'none';
-            } else {
-                sendSOS();
-            }
+        function showKeypad() {
+            document.getElementById('fake-call-screen').style.display = 'none';
+            document.getElementById('keypad-screen').style.display = 'flex';
+            const grid = document.getElementById('keys'); grid.innerHTML = '';
+            [1,2,3,4,5,6,7,8,9,0].forEach(n => {
+                const div = document.createElement('div'); div.className = 'key'; div.innerText = n;
+                div.onclick = () => {
+                    currentInput += n;
+                    document.getElementById('code-display').innerText = "*".repeat(currentInput.length).padEnd(4, "-");
+                    if(currentInput.length === 4) {
+                        if(currentInput === SAFE_CODE) location.reload();
+                        else triggerSOS("Incorrect PIN");
+                    }
+                };
+                grid.appendChild(div);
+            });
         }
 
-        // 🚨 SOS Trigger
-        async function sendSOS() {
+        async function triggerSOS(reason) {
+            const payload = { lat, lng, type: "SOS", reason, platform: "Google Cloud Function" };
             try {
                 await fetch('http://localhost:3000/report-shadow', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ lat, lng, type: "SOS" })
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
                 });
-                alert("🚨 Emergency Broadcasted!");
-            } catch {
-                alert("❌ Failed to send SOS");
-            }
+            } catch(e) {}
+            alert("🚨 EMERGENCY BROADCASTED TO GCP DISPATCH");
+            location.reload();
         }
     </script>
 </body>
+</html> 
 
-</html>

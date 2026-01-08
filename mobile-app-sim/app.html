@@ -1,189 +1,96 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Shadow-Walk | Safest Route AI</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
-    
+    <title>Shadow-Walk | GCP Secure</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { margin: 0; background: #0b0e11; color: white; font-family: 'Segoe UI', sans-serif; }
-        #map { height: 100vh; width: 100%; z-index: 1; }
-
-        .leaflet-control-geocoder {
-            min-width: 350px !important; margin-top: 20px !important;
-            background: #1c1f26 !important; border: 2px solid #00ff88 !important; border-radius: 8px !important;
-        }
-        .leaflet-control-geocoder-form input { background: transparent !important; color: white !important; padding: 10px !important; }
-        
-        .info-panel {
-            position: absolute; bottom: 30px; left: 30px; z-index: 1000;
-            background: rgba(28, 31, 38, 0.95); padding: 20px;
-            border-radius: 12px; border: 1px solid #00ff88; min-width: 250px;
-            box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
-        }
-        .safety-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-weight: bold; margin-top: 5px; }
-        .safe { background: #00ff88; color: black; }
-        .danger { background: #ff4444; color: white; }
+        body { background: #000; color: white; font-family: sans-serif; text-align: center; margin: 0; }
+        .safety-ring { width: 180px; height: 180px; border: 4px solid #00ff88; border-radius: 50%; margin: 40px auto; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; }
+        #fake-call-screen, #keypad-screen { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #1a1a1a; z-index: 2000; flex-direction: column; justify-content: space-around; align-items: center; }
+        .call-btn { width: 75px; height: 75px; border-radius: 50%; border: none; font-size: 1.5rem; color: white; cursor: pointer; }
+        .accept { background: #4cd964; } .decline { background: #ff3b30; }
+        .key { width: 80px; height: 80px; border: 1px solid #444; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+        .keypad-grid { display: grid; grid-template-columns: repeat(3, 80px); gap: 20px; }
     </style>
 </head>
 <body>
+    <h2>SHADOW-WALK</h2>
+    <div class="safety-ring" id="timer-display">02:00</div>
+    <p id="gps-status">Finding GPS...</p>
+    <button onclick="stationarySeconds = 118" style="opacity: 0.2;">Test</button>
 
-    <div class="info-panel">
-        <h3 style="margin:0; color:#00ff88;">🛡️ Safe-Path Monitor</h3>
-        <p id="dist">Distance: -- km</p>
-        <div id="safe-status" class="safety-badge safe">Analyzing Environment...</div>
-        <p style="font-size: 0.8rem; color: #888; margin-top: 10px;">Scanning for: 24/7 Shops & SOS Reports</p>
+    <div id="fake-call-screen">
+        <div style="font-size: 2rem;">Home<br><span style="font-size: 1rem; color: #00ff88;">Incoming...</span></div>
+        <div style="display: flex; gap: 50px;">
+            <button class="call-btn decline" onclick="triggerSOS('Call Rejected')">✖</button>
+            <button class="call-btn accept" onclick="showKeypad()">📞</button>
+        </div>
     </div>
 
-    <div id="map"></div>
-
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
-    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <div id="keypad-screen">
+        <h3>Enter Security PIN</h3>
+        <div id="code-display" style="font-size: 2rem; letter-spacing: 10px;">----</div>
+        <div class="keypad-grid" id="keys"></div>
+    </div>
 
     <script>
+        let lat, lng, lastLat, lastLng, stationarySeconds = 0;
+        let currentInput = "";
+        const SAFE_CODE = "1234", MAX_TIME = 120;
 
-        const map = L.map('map').setView([12.9716, 77.5946], 15);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
-
-        let userLocation = null;
-        let userMarker = null;
-        let firstFix = true;
-        let routeControl = null;
-        let activeSOS = [];
-
-        // 1. SOS REAL-TIME MONITORING
-        const socket = io('http://localhost:3000');
-        socket.on('new-alert', (data) => {
-            if (data.type === "SOS") {
-                activeSOS.push(L.latLng(data.lat, data.lng));
-                L.circle([data.lat, data.lng], { color: 'red', radius: 250, fillOpacity: 0.4 }).addTo(map)
-                    .bindPopup("🚨 <b>Danger:</b> Recent incident reported!");
-                if (routeControl && routeControl._line) {
-    checkSafety(routeControl._line._latlngs);
-}
-
-            }
+        navigator.geolocation.watchPosition(p => {
+            lat = p.coords.latitude; lng = p.coords.longitude;
+            document.getElementById('gps-status').innerText = "📍 Tracking Active";
+            if(!lastLat) { lastLat = lat; lastLng = lng; }
         });
 
-        // 2. OVERPASS API: FETCH OPEN SHOPS (SAFE ZONES)
-        async function getSafeZones(lat, lng) {
-            // This query finds shops, pharmacies, and police within 1km
-            const query = `[out:json];(node["shop"](around:1000,${lat},${lng});node["amenity"="pharmacy"](around:1000,${lat},${lng});node["amenity"="police"](around:1000,${lat},${lng}););out;`;
-            const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-            
+        setInterval(() => {
+            if(!lat) return;
+            // Check for stationary status
+            if(lat === lastLat && lng === lastLng) stationarySeconds++;
+            else { stationarySeconds = 0; lastLat = lat; lastLng = lng; }
+
+            const remaining = MAX_TIME - stationarySeconds;
+            if(remaining <= 0) document.getElementById('fake-call-screen').style.display = 'flex';
+            else updateTimer(remaining);
+        }, 1000);
+
+        function updateTimer(s) {
+            const m = Math.floor(s/60); const sec = s%60;
+            document.getElementById('timer-display').innerText = `${m}:${sec < 10 ? '0'+sec : sec}`;
+        }
+
+        function showKeypad() {
+            document.getElementById('fake-call-screen').style.display = 'none';
+            document.getElementById('keypad-screen').style.display = 'flex';
+            const grid = document.getElementById('keys'); grid.innerHTML = '';
+            [1,2,3,4,5,6,7,8,9,0].forEach(n => {
+                const div = document.createElement('div'); div.className = 'key'; div.innerText = n;
+                div.onclick = () => {
+                    currentInput += n;
+                    document.getElementById('code-display').innerText = "*".repeat(currentInput.length).padEnd(4, "-");
+                    if(currentInput.length === 4) {
+                        if(currentInput === SAFE_CODE) location.reload();
+                        else triggerSOS("Incorrect PIN");
+                    }
+                };
+                grid.appendChild(div);
+            });
+        }
+
+        async function triggerSOS(reason) {
+            const payload = { lat, lng, type: "SOS", reason, platform: "Google Cloud Function" };
             try {
-                const response = await fetch(url);
-                const data = await response.json();
-                data.elements.forEach(el => {
-                    L.circle([el.lat, el.lon], { color: '#00ff88', radius: 50, fillOpacity: 0.1, weight: 1 }).addTo(map)
-                        .bindTooltip(el.tags.name || "Safe Zone", {permanent: false});
+                await fetch('http://localhost:3000/report-shadow', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
                 });
-            } catch (e) { console.error("Safe zones failed", e); }
-        }
-
-        // 3. GEOLOCATION
-        map.locate({
-    watch: true,
-    setView: false,
-    enableHighAccuracy: true,
-    maximumAge: 1000,
-    timeout: 10000
-});
-
-       map.on('locationfound', (e) => {
-    userLocation = e.latlng;
-
-    // Remove old marker
-   // ===== GOOGLE MAPS STYLE LOCATION =====
-userLocation = e.latlng;
-
-// Accuracy circle (big faint blue circle)
-const accuracy = e.accuracy || 50;
-
-if (window.accuracyCircle) {
-    map.removeLayer(window.accuracyCircle);
-}
-window.accuracyCircle = L.circle(e.latlng, {
-    radius: accuracy,
-    color: '#4a90ff',
-    fillColor: '#4a90ff',
-    fillOpacity: 0.12,
-    weight: 1
-}).addTo(map);
-
-// Blue dot with white border
-if (userMarker) {
-    map.removeLayer(userMarker);
-}
-userMarker = L.circleMarker(e.latlng, {
-    radius: 6,
-    color: 'white',        // white border
-    weight: 2,
-    fillColor: '#2d7cff',  // Google Maps blue
-    fillOpacity: 1
-}).addTo(map);
-
-// Smooth follow (not jumpy)
-map.panTo(e.latlng, {
-    animate: true,
-    duration: 0.5
-});
-
-    // Load safe zones only once
-    if (firstFix) {
-        getSafeZones(e.latlng.lat, e.latlng.lng);
-        firstFix = false;
-    }
-});
-
-
-        // 4. SEARCH & ROUTE
-        const geocoder = L.Control.geocoder({ collapsed: false, placeholder: "Enter Destination..." })
-            .on('markgeocode', (e) => calculateRoute(e.geocode.center))
-            .addTo(map);
-
-        function calculateRoute(dest) {
-             if (!userLocation) {
-        alert("📍 Waiting for your location...");
-        return;
-    }
-            if (routeControl) map.removeControl(routeControl);
-            
-            routeControl = L.Routing.control({
-                waypoints: [L.latLng(userLocation.lat, userLocation.lng), L.latLng(dest.lat, dest.lng)],
-                lineOptions: { styles: [{ color: '#00ff88', weight: 6, opacity: 0.8 }] },
-                createMarker: () => null
-            }).addTo(map);
-
-            routeControl.on('routesfound', (e) => {
-                const dist = (e.routes[0].summary.totalDistance / 1000).toFixed(2);
-                document.getElementById('dist').innerText = `Distance: ${dist} km`;
-                checkSafety(e.routes[0].coordinates);
-            });
-        }
-
-        // 5. SAFETY ALGORITHM
-        function checkSafety(pathCoords) {
-            let isDangerous = false;
-            pathCoords.forEach(coord => {
-                activeSOS.forEach(sos => {
-                    if (L.latLng(coord.lat, coord.lng).distanceTo(sos) < 300) isDangerous = true;
-                });
-            });
-
-            const status = document.getElementById('safe-status');
-            if (isDangerous) {
-                status.innerText = "⚠️ ROUTE DANGER DETECTED";
-                status.className = "safety-badge danger";
-                routeControl.getPlan().setWaypoints(routeControl.getWaypoints()); // Forces refresh
-            } else {
-                status.innerText = "✅ SAFEST PATH VERIFIED";
-                status.className = "safety-badge safe";
-            }
+            } catch(e) {}
+            alert("🚨 EMERGENCY BROADCASTED TO GCP DISPATCH");
+            location.reload();
         }
     </script>
 </body>
 </html> 
+
